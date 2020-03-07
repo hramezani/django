@@ -3,12 +3,15 @@ import unittest
 from migrations.test_base import OperationTestBase
 
 from django.db import NotSupportedError, connection
+from django.db.backends.base.schema import BaseDatabaseSchemaEditor
+from django.db.migrations.state import ProjectState
 from django.db.models import Index
-from django.test import modify_settings
+from django.test import modify_settings, override_settings
 
 try:
     from django.contrib.postgres.operations import (
         AddIndexConcurrently, RemoveIndexConcurrently,
+        HStoreExtension,
     )
     from django.contrib.postgres.indexes import BrinIndex, BTreeIndex
 except ImportError:
@@ -141,3 +144,42 @@ class RemoveIndexConcurrentlyTests(OperationTestBase):
         self.assertEqual(name, 'RemoveIndexConcurrently')
         self.assertEqual(args, [])
         self.assertEqual(kwargs, {'model_name': 'Pony', 'name': 'pony_pink_idx'})
+
+
+@unittest.skipUnless(connection.vendor == 'postgresql', 'PostgreSQL specific tests.')
+@modify_settings(INSTALLED_APPS={'append': 'migrations'})
+class ExtensionMigrationTests(OperationTestBase):
+    app_label = 'test_extention_migration'
+
+    def _database_move(self, operation, direction):
+        project_state = ProjectState()
+        new_state = project_state.clone()
+        with connection.schema_editor() as editor:
+            if direction == 'forwards':
+                operation.database_forwards(self.app_label, editor, project_state, new_state)
+            elif direction == 'backwards':
+                operation.database_backwards(self.app_label, editor, project_state, new_state)
+
+    def test_extention_migration(self):
+        class TestRouter:
+            def allow_migrate(self, db, app_label, **hints):
+                return False
+
+        tests = (
+            ([], 'forwards', 'CREATE EXTENSION', 1),
+            ([TestRouter()], 'forwards', 'CREATE EXTENSION', 0),
+            ([], 'backwards', 'DROP EXTENSION', 1),
+            ([TestRouter()], 'backwards', 'DROP EXTENSION', 0),
+        )
+        operation = HStoreExtension()
+        for routers, direction, command, call_count in tests:
+            with override_settings(DATABASE_ROUTERS=routers):
+                with unittest.mock.patch.object(
+                    BaseDatabaseSchemaEditor,
+                    'execute'
+                ) as execute:
+                    self._database_move(operation, direction)
+                    create_extension_count = len(
+                        [call for call in execute.mock_calls if command in str(call)]
+                    )
+                    self.assertEqual(create_extension_count, call_count)
