@@ -802,6 +802,20 @@ class BasicExpressionsTests(TestCase):
             [self.example_inc.ceo, self.max],
         )
 
+    def test_aggregation_groupby_expression_wrapper(self):
+        Manager.objects.create(name="test manager1")
+        Manager.objects.create(name="test manager1")
+        Manager.objects.create(name="test manager2")
+        names = Manager.objects.annotate(
+            name__is_null=ExpressionWrapper(
+                Q(name=None),
+                output_field=BooleanField()
+            )
+        ).values("name__is_null").annotate(
+            id__count=Count("id", distinct=True)
+        ).values("name__is_null", "id__count")
+        self.assertQuerysetEqual(names, [{'id__count': 3, 'name__is_null': False}])
+
 
 class IterableLookupInnerExpressionsTests(TestCase):
     @classmethod
