@@ -201,3 +201,8 @@ class RunPython(Operation):
     @staticmethod
     def noop(apps, schema_editor):
         return None
+
+    def reduce(self, operation, app_label):
+        if isinstance(operation, RunPython):
+            return super().reduce(operation, app_label)
+        return True

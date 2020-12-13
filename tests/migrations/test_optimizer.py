@@ -830,3 +830,30 @@ class OptimizerTests(SimpleTestCase):
                 migrations.CreateModel("Phou", [("name", models.CharField(max_length=255))]),
             ],
         )
+
+    def test_optimizer_crashes_when_fields_names_are_swapped(self):
+        self.assertOptimizesTo(
+            [
+                migrations.CreateModel(
+                    'MyModel',
+                    [
+                        ('field_a', models.IntegerField()),
+                        ('field_b', models.IntegerField()),
+                    ],
+                ),
+                migrations.RunPython(migrations.RunPython.noop),
+                migrations.RenameField('MyModel', 'field_a', 'field_c'),
+                migrations.RenameField('MyModel', 'field_b', 'field_a'),
+                migrations.RenameField('MyModel', 'field_c', 'field_b'),
+            ],
+            [
+                migrations.CreateModel(
+                    'MyModel',
+                    [
+                        ('field_b', models.IntegerField()),
+                        ('field_a', models.IntegerField()),
+                    ],
+                ),
+                migrations.RunPython(migrations.RunPython.noop),
+            ],
+        )
